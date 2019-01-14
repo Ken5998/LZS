@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include <conio.h>
 #include <stdlib.h>
 #include <limits.h>
 #include <time.h>
@@ -11,12 +10,10 @@
 #define SLIDING_WINDOW 2048
 
 //STRUTTURE
-struct bit_field
-{
-	unsigned x9 : 9; //  9 bits
-	unsigned x11 : 11; // 11 bits
-	unsigned x13 : 13; // 13 bits
-};
+typedef enum {
+	ENCODE,
+	DECODE
+} MODES;
 
 //VARIABILI
 
@@ -25,11 +22,8 @@ int tail = -1;   // valore a -1 indica che la finestra è vuota
 unsigned int outBuffer[8];
 int outIndex = 0;
 
-int move = 7;
-int length = 8;
-unsigned int inBuffer[8];
-int inIndex = 0;
-bool toContinue = 0;
+int zeroVal = 0; // conta bit a zero durante la scrittura
+
 FILE *fileIn;
 FILE *fileOut;
 unsigned char *encodedBuffer;
@@ -37,8 +31,7 @@ unsigned char *decodedBuffer;
 
 unsigned long countPosition = 0; // Significa che in fase di decompressione verifica se ci sono ancora dei bit da scrivere o meno
 long fileLen; //lunghezza file in byte
-long index;
-int remainingValue = 8;
+int index;
 
 //PROTOTIPI
 
@@ -318,7 +311,7 @@ bool getBit(int byte, int position) // position in range 0-7 _ 0-9 _ 0-11 _ 0-13
 void readBit(unsigned char *buffer)
 {
 	unsigned char * bufferToBinary;
-	bufferToBinary = calloc((fileLen * 8) + 1, sizeof *bufferToBinary);
+	bufferToBinary = calloc((fileLen * 9) + 1, sizeof *bufferToBinary);
 
 	int k = 0;
 
@@ -342,33 +335,34 @@ void readBit(unsigned char *buffer)
 
 void checkBit(unsigned char *buffer) 
 {
-	int numberOfBits = 0, val = 0, i = 0;
-	unsigned long offset = 0, length = 0, finalLength = 0;
+	long numberOfBits = 0, val = 0, i = 0, temp = 0;
+	unsigned long offset = 0, length = 0, finalLength = 0, k = 0;
 	unsigned char * arrayLength, *historyArray;
 
-	arrayLength = calloc(fileLen + 1, sizeof *arrayLength); // array che contiene il numero di bit per ogni byte codificato
-	historyArray = calloc((fileLen * 16) + 1, sizeof *historyArray); // array che contiene i veri valori dei caratteri
+	int numOfBitsForEndFile = checkEndFile(buffer);
 
-	// Metto tutti gli elementi degli array a NULL di modo da poterli distinguere successivamente
-	//for (int i = 0; i < (fileLen * 8) + 1; i++) {
-		//historyArray[i] = NULL;
-	//}
+	arrayLength = calloc((fileLen * 8) + 1, sizeof *arrayLength); // array che contiene il numero di bit per ogni byte codificato
+	historyArray = calloc((fileLen * 12) + 1, sizeof *historyArray); // array che contiene i veri valori dei caratteri
 
-	for (unsigned long k = 0; k < fileLen * 8 + 1;) {
-		if (buffer[k] == 1 && buffer[k + 1] == 1 && buffer[k + 2] == 0 && buffer[k + 3] == 0 && buffer[k + 4] == 0 && buffer[k + 5] == 0 && buffer[k + 6] == 0 && buffer[k + 7] == 0 && buffer[k + 8] == 0) break;
+	while(k <= numOfBitsForEndFile){
+	//for (k = 0; k < fileLen * 12 + 1;) {
+		if (buffer[k] == 1 && buffer[k + 1] == 1 && buffer[k + 2] == 0 && buffer[k + 3] == 0 && buffer[k + 4] == 0 && buffer[k + 5] == 0 && buffer[k + 6] == 0 && buffer[k + 7] == 0 && buffer[k + 8] == 0) {
+			//printf("FINE\nk: %d\nfileLen * 16 + 1 = %d\n", k, fileLen * 16 + 1);
+			break;
+		}
 		else {
 			if (buffer[k] == 0) {
 				k++;
-				//printf("unsigned char buffer: ");
 				int temp = 0;
 				for (int h = 0; h < 8; h++) {
 					if (buffer[k + h] == 0) temp++;
 				}
 				if(temp != 8){
+					//printf("\nunsigned char buffer: ");
 					for (int j = 0; j < 8; j++) {
 						writeBit(buffer[k + j]);
 						historyArray[countPosition] = buffer[k + j];
-						//printf("%d\n", buffer[k + j]);
+						//printf("%d", buffer[k + j]);
 						countPosition++;
 					}
 				}
@@ -382,7 +376,7 @@ void checkBit(unsigned char *buffer)
 				offset = offsetGet(buffer, k);
 				numberOfBits = bitsCounter(buffer, k);
 				length = lengthGet(buffer, k, numberOfBits);
-				int temp = 0;
+				temp = 0;
 
 				//printf("\noffset: %d\nnumberOfBits: %d\nlength: %d\n", offset, numberOfBits, length);
 
@@ -403,27 +397,27 @@ void checkBit(unsigned char *buffer)
 				finalLength = length;
 				val = k + 1 - temp;
 				//printf("k: %d\ntemp: %d\nval: %d\n", k, temp, val);
-				int offsetIniziale = offset, nullCounter = 0;
-
-				//removeNullValues(historyArray, countPosition);
-
+				
 				//trovata la ricorrenza la scrive verificando se il primo bit del byte successivo
 				//e' = 1 allora significa che deve riscrivere x volte lo stesso carattere
 				while (finalLength > 0) {
 
+					//if (checkZeroValues(historyArray, countPosition, offset) > 0) {
+						//printf("count zero values: %d\nk value = %d\n", checkZeroValues(historyArray, countPosition, offset), k);
+					//}
+
 					for (int j = 0; j < 8; j++) {
 
-						if (checkZeroValues(historyArray, countPosition, offset) != 0) {
-							printf("count zero values: %d\nk value = %d\n", checkZeroValues(historyArray, countPosition, offset), k);
+						if (checkZeroValues(historyArray, countPosition, offset) > 0) {
 							historyArray[countPosition] = historyArray[(countPosition + 8 * checkZeroValues(historyArray, countPosition, offset)) - 8 * offset];
 							writeBit(historyArray[countPosition]);
-							//printf("writeBit: %d\nval: %d\n", historyArray[countPosition - 8 * offset + j], val);
+							//printf("writeBit: %d\ncount position: %d\nval: %d\n", historyArray[(countPosition + 8 * checkZeroValues(historyArray, countPosition, offset)) - 8 * offset], countPosition, val);
 							countPosition++;
 						}
 						else {
 							historyArray[countPosition] = historyArray[countPosition - 8 * offset];
 							writeBit(historyArray[countPosition]);
-							//printf("writeBit: %d\nval: %d\n", historyArray[countPosition - 8 * offset + j], val);
+							//printf("writeBit: %d\ncount position: %d\nval: %d\n", historyArray[countPosition - 8 * offset + j], countPosition, val);
 							countPosition++;
 						}
 					}
@@ -456,31 +450,37 @@ void checkBit(unsigned char *buffer)
 
 	}
 
-	/*for (int i = 0; i < fileLen * 16; i++) {
+	/*
+	for (int i = 0; i < countPosition; i++) {
 		if (i % 8 == 0) printf("\n");
 		printf("%d", historyArray[i]);
-	}*/
+	}
 
+	printf("\nFINE\nk: %d\nfileLen * 16 + 1 = %d\ntemp: %d\ncount position: %d\ncheck end file: %d\n", k, fileLen * 16 + 1, temp, countPosition, numOfBitsForEndFile);
+	printf("\nMAX VALUE OF INT: %d\n", INT_MAX);
+	printf("\nValue of i: %d\n", i);
+	*/
 }
 
 int bitsCounter(unsigned char *buffer, int number) 
 {
 	// metodo che conta il numero di bits per capire se l'offset è inforiore a 128 oppure maggiore
 	// 0b11 offset < 128 ... 0b10 offset >= 128
-	number = number + 1;
-	int value;
+number = number + 1;
+int value;
 
-	if (buffer[number] == 0) {
-		value = 11;
-		return value;
-	} else{
-		value = 7;
-		return value;
-	}
+if (buffer[number] == 0) {
+	value = 11;
+	return value;
+}
+else {
+	value = 7;
+	return value;
+}
 
 }
 
-unsigned int offsetGet(unsigned char *buffer, int number) 
+unsigned int offsetGet(unsigned char *buffer, int number)
 {
 	// metodo che restituisce l'offset da dove parte la sequenza
 	number = number + 1;
@@ -543,21 +543,41 @@ unsigned int lengthGet(unsigned char *buffer, int number, int bits)
 }
 
 int checkZeroValues(unsigned char *buffer, int position, int offset) {
-	int temp = 0;
+
+	zeroVal = 0;
 
 	for (int i = 0; i < 64; i++) {
 		if (buffer[(position + i) - (8 * offset)] == 0) {
-			temp++;
+			zeroVal++;
 		}
 		else break;
 	}
 
-	while (temp % 8 != 0) {
-		temp--;
+	while (zeroVal % 8 != 0) {
+		zeroVal--;
 	}
 
-	if (temp >= 8) {
-		return temp / 8;
+	if (zeroVal >= 8) {
+		return zeroVal / 8;
 	}
 	else return 0;
+}
+
+int checkEndFile(unsigned char *buffer) {
+	int returnValue = 0, i;
+
+
+	continueSearching:
+	for (i = 0; i < fileLen * 8; i++) {
+		if(buffer[i] == 1 && buffer[i + 1] == 1 && buffer[i + 2] == 0 && buffer[i + 3] == 0 && buffer[i + 4] == 0 && buffer[i + 5] == 0 && buffer[i + 6] == 0 && buffer[i + 7] == 0 && buffer[i + 8] == 0){
+			break;
+		}
+		else {
+			returnValue++;
+		}
+	}
+
+	if (buffer[returnValue + 9] == 1 || buffer[returnValue + 10] == 1 || buffer[returnValue + 11] == 1 || buffer[returnValue + 12] == 1 || buffer[returnValue + 13] == 1 || buffer[returnValue + 14] == 1 || buffer[returnValue + 15] == 1 || buffer[returnValue + 16] == 1) goto continueSearching;
+
+	return returnValue;
 }
